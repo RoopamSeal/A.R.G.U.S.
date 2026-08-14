@@ -2,9 +2,15 @@
 PICO Insight Generator
 -----------------------
 A Streamlit application that lets a health professional upload one or more
-clinical queries and uses a MedGemma model (via the Hugging Face Inference
-API) to generate a natural-language insight structured around the PICO
-framework (Population, Intervention, Comparison, Outcome).
+clinical queries and uses an LLM to generate a natural-language insight
+structured around the PICO framework (Population, Intervention, Comparison,
+Outcome).
+
+Note: MedGemma is not hosted on Hugging Face's free serverless router as of
+2026. By default this app calls a free general-purpose instruct model via
+that router. To use actual MedGemma, deploy it to a paid HF Inference
+Endpoint or Vertex AI Model Garden and enter that endpoint's URL in the
+sidebar ("Custom endpoint" mode).
 
 Run locally with:
     streamlit run app.py
@@ -25,10 +31,19 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Loads variables from a local .env file (never committed to git)
 
-# You can swap this for any MedGemma checkpoint you have access to on the Hub,
-# e.g. "google/medgemma-4b-it" or "google/medgemma-27b-text-it".
-DEFAULT_MODEL_ID = os.getenv("MEDGEMMA_MODEL_ID", "google/medgemma-4b-it")
-HF_API_URL_TEMPLATE = "https://api-inference.huggingface.co/models/{model_id}"
+# NOTE: As of 2026, MedGemma is NOT deployed on Hugging Face's free serverless
+# "Inference Providers" router. To actually call MedGemma you need either a
+# paid HF Inference Endpoint or a Vertex AI Model Garden deployment, and you
+# provide its base URL below (CUSTOM_ENDPOINT_URL / sidebar field).
+# For a free, zero-setup demo, this app falls back to a general-purpose
+# instruct model that IS live on the free router.
+DEFAULT_FREE_MODEL_ID = os.getenv("FREE_MODEL_ID", "meta-llama/Llama-3.1-8B-Instruct")
+DEFAULT_CUSTOM_ENDPOINT_URL = os.getenv("CUSTOM_ENDPOINT_URL", "")  # e.g. a paid HF Endpoint base URL
+
+# Hugging Face retired api-inference.huggingface.co in favor of the unified
+# "Inference Providers" router, which speaks the OpenAI-compatible chat
+# completions format.
+HF_ROUTER_CHAT_URL = "https://router.huggingface.co/v1/chat/completions"
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 5  # used mainly when the model is "cold" (loading)
@@ -85,10 +100,34 @@ def build_prompt(query_text: str) -> str:
     return PICO_SYSTEM_PROMPT.format(query=query_text.strip())
 
 
-def call_medgemma(query_text: str, api_token: str, model_id: str) -> str:
+def resolve_chat_url(custom_endpoint_url: str) -> str:
     """
-    Calls the Hugging Face Inference API for the given MedGemma model and
-    returns the generated PICO insight as plain text.
+    Decides which base URL to call:
+    - If a custom endpoint (e.g. a paid HF Inference Endpoint or any other
+      OpenAI-compatible server) is configured, use it.
+    - Otherwise, fall back to Hugging Face's free serverless router.
+    """
+    if custom_endpoint_url and custom_endpoint_url.strip():
+        base = custom_endpoint_url.strip().rstrip("/")
+        # Dedicated HF Inference Endpoints (and most OpenAI-compatible
+        # servers) expose chat completions at /v1/chat/completions.
+        if base.endswith("/v1/chat/completions"):
+            return base
+        return f"{base}/v1/chat/completions"
+    return HF_ROUTER_CHAT_URL
+
+
+def call_medgemma(
+    query_text: str,
+    api_token: str,
+    model_id: str,
+    custom_endpoint_url: str = "",
+) -> str:
+    """
+    Calls an OpenAI-compatible chat completions endpoint (either Hugging
+    Face's free Inference Providers router, or a custom/dedicated endpoint
+    such as a paid HF Inference Endpoint) and returns the generated PICO
+    insight as plain text.
 
     Raises a RuntimeError with a human-readable message on failure, so the
     caller can display it cleanly in the UI instead of crashing.
@@ -102,19 +141,20 @@ def call_medgemma(query_text: str, api_token: str, model_id: str) -> str:
             ".env file (local) or in Streamlit secrets (deployed app)."
         )
 
-    url = HF_API_URL_TEMPLATE.format(model_id=model_id)
+    url = resolve_chat_url(custom_endpoint_url)
+    using_custom_endpoint = bool(custom_endpoint_url and custom_endpoint_url.strip())
+
     headers = {
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
     }
     payload = {
-        "inputs": build_prompt(query_text),
-        "parameters": {
-            "max_new_tokens": 512,
-            "temperature": 0.3,
-            "return_full_text": False,
-        },
-        "options": {"wait_for_model": True},
+        "model": model_id,
+        "messages": [
+            {"role": "user", "content": build_prompt(query_text)},
+        ],
+        "max_tokens": 512,
+        "temperature": 0.3,
     }
 
     last_error = None
@@ -123,7 +163,7 @@ def call_medgemma(query_text: str, api_token: str, model_id: str) -> str:
             response = requests.post(
                 url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT_SECONDS
             )
-        except requests.exceptions.Timeout as exc:
+        except requests.exceptions.Timeout:
             last_error = f"Request timed out (attempt {attempt}/{MAX_RETRIES})."
             time.sleep(RETRY_BACKOFF_SECONDS)
             continue
@@ -142,19 +182,27 @@ def call_medgemma(query_text: str, api_token: str, model_id: str) -> str:
                 "Hugging Face page and accept its usage terms."
             )
         if response.status_code == 404:
+            if using_custom_endpoint:
+                raise RuntimeError(
+                    f"404 from your custom endpoint ({url}). Double-check the "
+                    "endpoint URL is correct and running."
+                )
             raise RuntimeError(
-                f"Model '{model_id}' was not found, or is not deployed on the "
-                "free Inference API. Verify the model ID."
+                f"Model '{model_id}' was not found on Hugging Face's free "
+                "router. Many specialized models (including MedGemma) are not "
+                "hosted on the free tier — you'll need a paid Inference "
+                "Endpoint or Vertex AI deployment, entered as a custom "
+                "endpoint URL, to use that model."
             )
         if response.status_code == 503:
             # Model is loading (cold start) - worth retrying.
-            last_error = "The model is still loading on Hugging Face's servers."
+            last_error = "The model is still loading on the server."
             time.sleep(RETRY_BACKOFF_SECONDS)
             continue
         if response.status_code == 429:
             raise RuntimeError(
                 "Rate limit exceeded (429). Please wait a moment before trying "
-                "again, or upgrade your Hugging Face plan for higher limits."
+                "again, or upgrade your plan for higher limits."
             )
         if not response.ok:
             raise RuntimeError(
@@ -167,17 +215,17 @@ def call_medgemma(query_text: str, api_token: str, model_id: str) -> str:
         except ValueError:
             raise RuntimeError("Received a non-JSON response from the API.")
 
-        # The Inference API can return either a list of generations or a dict
-        # with an "error" key if something went wrong server-side.
         if isinstance(data, dict) and "error" in data:
-            last_error = data["error"]
+            err = data["error"]
+            err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            last_error = err_msg
             time.sleep(RETRY_BACKOFF_SECONDS)
             continue
 
-        if isinstance(data, list) and data and "generated_text" in data[0]:
-            return data[0]["generated_text"].strip()
-
-        raise RuntimeError(f"Unexpected API response format: {data}")
+        try:
+            return data["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError):
+            raise RuntimeError(f"Unexpected API response format: {data}")
 
     raise RuntimeError(
         f"Failed after {MAX_RETRIES} attempts. Last error: {last_error}"
@@ -254,7 +302,44 @@ st.caption(
 
 with st.sidebar:
     st.header("⚙️ Settings")
-    model_id = st.text_input("MedGemma model ID", value=DEFAULT_MODEL_ID)
+
+    inference_mode = st.radio(
+        "Inference source",
+        ["Free hosted model (HF router)", "Custom endpoint (paid / dedicated)"],
+        help=(
+            "MedGemma is not available on Hugging Face's free serverless "
+            "router. Use 'Free hosted model' to try the app with a "
+            "general-purpose instruct model at no cost, or 'Custom endpoint' "
+            "to point at a paid HF Inference Endpoint / Vertex AI deployment "
+            "actually running MedGemma."
+        ),
+    )
+
+    custom_endpoint_url = ""
+    if inference_mode == "Custom endpoint (paid / dedicated)":
+        custom_endpoint_url = st.text_input(
+            "Endpoint base URL",
+            value=DEFAULT_CUSTOM_ENDPOINT_URL,
+            placeholder="https://your-endpoint-id.endpoints.huggingface.cloud",
+            help="Base URL of your dedicated Inference Endpoint (no trailing /v1/...).",
+        )
+        model_id = st.text_input(
+            "Model ID (as configured on your endpoint)",
+            value="google/medgemma-4b-it",
+        )
+        if not custom_endpoint_url.strip():
+            st.warning("Enter your endpoint URL to use this mode.", icon="⚠️")
+    else:
+        model_id = st.text_input(
+            "Free model ID (hosted on HF router)",
+            value=DEFAULT_FREE_MODEL_ID,
+            help="Any instruct model available via Hugging Face's free Inference Providers router.",
+        )
+        st.caption(
+            "ℹ️ This is a general-purpose model, not medically fine-tuned. "
+            "Switch to 'Custom endpoint' once you have MedGemma deployed "
+            "somewhere with GPU access."
+        )
 
     api_token = get_api_token()
     if api_token:
@@ -307,7 +392,9 @@ with tab_upload:
                             text=f"Analyzing query {i + 1} of {len(queries_df)}...",
                         )
                         try:
-                            insight = call_medgemma(row["query"], api_token, model_id)
+                            insight = call_medgemma(
+                                row["query"], api_token, model_id, custom_endpoint_url
+                            )
                             output_rows.append(
                                 {"query": row["query"], "pico_insight": insight, "status": "success"}
                             )
@@ -356,7 +443,9 @@ with tab_manual:
         else:
             with st.spinner("Analyzing query with MedGemma..."):
                 try:
-                    insight = call_medgemma(manual_query, api_token, model_id)
+                    insight = call_medgemma(
+                        manual_query, api_token, model_id, custom_endpoint_url
+                    )
                     with results_placeholder:
                         st.subheader("Result")
                         st.markdown(insight)
