@@ -9,10 +9,10 @@ import pubmed_fetcher
 import insight_llm
 import cache
 
-st.set_page_config(page_title="PubMed Insight Generator", page_icon="🧬", layout="centered")
+st.set_page_config(page_title="A.R.G.U.S.", page_icon="🧬", layout="centered")
 
-st.title("🧬 PubMed Insight Generator")
-st.caption("v1 — retrieves literature from PubMed and summarizes it into structured insights.")
+st.title("A.R.G.U.S. Insights")
+st.caption("Retrieves literature from PubMed and get structured insights.")
 
 # Fail fast with a clear message if API keys aren't set, instead of a confusing traceback later
 try:
