@@ -60,9 +60,7 @@ if st.button("Generate insights", type="primary") and query:
             st.markdown(f"**Key finding:** {item.get('key_finding', 'Not specified')}")
             st.markdown(f"**Population:** {item.get('population', 'Not specified')}")
 
-            icon = confidence_icon.get(item.get("confidence", ""), "⚪")
             meta_cols = st.columns([2, 2, 2])
-            meta_cols[0].markdown(f"{icon} Confidence: {item.get('confidence', 'Unknown')}")
             meta_cols[1].markdown(f"📅 {item.get('pub_date', 'Unknown')}")
             meta_cols[2].markdown(f"[View on PubMed ↗]({item.get('url', '#')})")
 
