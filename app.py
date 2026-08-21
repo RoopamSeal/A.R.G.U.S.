@@ -61,7 +61,6 @@ if st.button("Generate insights", type="primary") and query:
             st.markdown(f"**Population:** {item.get('population', 'Not specified')}")
 
             meta_cols = st.columns([2, 2, 2])
-            meta_cols[1].markdown(f"📅 {item.get('pub_date', 'Unknown')}")
             meta_cols[2].markdown(f"[View on PubMed ↗]({item.get('url', '#')})")
 
 elif not query:
