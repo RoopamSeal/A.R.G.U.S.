@@ -18,7 +18,7 @@ ENTREZ_EMAIL = os.getenv("ENTREZ_EMAIL", "")
 ENTREZ_API_KEY = os.getenv("ENTREZ_API_KEY", "")
 
 # Pipeline defaults
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-20b"
 MAX_ABSTRACTS_PER_QUERY = 8
 CACHE_FILE = "insight_cache.json"
 
