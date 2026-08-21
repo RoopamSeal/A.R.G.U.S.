@@ -53,8 +53,6 @@ if st.button("Generate insights", type="primary") and query:
 
     st.success(f"Found {len(insights)} insight(s) for '{query}'")
 
-    confidence_icon = {"High": "🟢", "Medium": "🟡", "Low": "🔴"}
-
     for item in insights:
         with st.container(border=True):
             st.markdown(f"**{item.get('title', 'Untitled')}**")
