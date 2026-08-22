@@ -1,5 +1,5 @@
 """
-PubMed Insight Generator - v1
+PubMed Insight Generator
 Streamlit UI tying the pipeline together:
 query -> PubMed fetch -> LLM insight extraction -> insight cards
 """
