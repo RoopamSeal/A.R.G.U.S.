@@ -21,7 +21,7 @@ ENTREZ_EMAIL = os.getenv("ENTREZ_EMAIL", "")
 ENTREZ_API_KEY = os.getenv("ENTREZ_API_KEY", "")
 
 # Pipeline defaults
-GROQ_MODEL = "openai/gpt-oss-120b"
+GROQ_MODEL = "openai/gpt-oss-safeguard-20b"
 MAX_ABSTRACTS_PER_QUERY = 8
 CACHE_FILE = "insight_cache.json"
 ABSTRACTS_PER_CATEGORY = 3  # 5 categories x 3 = up to 15 abstracts per topic
