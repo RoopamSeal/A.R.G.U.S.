@@ -1,6 +1,7 @@
 """
 Sends PubMed abstracts to an LLM (Groq / Llama 3.3) and gets back
-structured insights as JSON.
+structured insights as JSON - now in PICO format, with evidence status,
+confidence rating, and study-type metadata for each retrieved abstract.
 """
 import json
 from groq import Groq
@@ -8,15 +9,29 @@ import config
 
 client = Groq(api_key=config.GROQ_API_KEY)
 
-SYSTEM_PROMPT = """You are a biomedical literature analyst. You will be given a list of \
-PubMed abstracts. For EACH abstract, extract a structured insight.
+SYSTEM_PROMPT = """You are a biomedical evidence analyst building a structured evidence \
+repository. You will be given a list of PubMed abstracts, each tagged with a "category" \
+(the section of a disease evidence framework it was retrieved for) and a "pmid".
 
-Respond ONLY with a JSON array (no markdown, no preamble, no code fences). Each element must have:
-- "pmid": the PubMed ID given to you (as a string)
+For EACH abstract, extract a structured insight. Respond ONLY with a JSON array (no \
+markdown, no preamble, no code fences). Each element must have exactly these fields:
+
+- "pmid": echo back the pmid you were given, as a string
+- "category": echo back the category you were given, exactly as given
+- "pico": an object with "population", "intervention", "comparison", "outcome" - use \
+  "Not applicable" for any field the study design doesn't involve (purely descriptive \
+  epidemiology studies usually have no intervention/comparison)
 - "summary": a 2-3 sentence plain-language summary of the key finding
-- "population": the study population if stated, otherwise "Not specified"
 - "key_finding": the single most important takeaway, in one sentence
-- "confidence": one of "High", "Medium", "Low" - based on study size/design as described in the abstract
+- "study_type": your best read of the study design - one of "Systematic review", \
+  "Meta-analysis", "Randomized controlled trial", "Cohort study", "Cross-sectional study", \
+  "Case report", "Narrative review", "Not specified"
+- "evidence_status": "Strong" if study_type is a systematic review, meta-analysis, or RCT; \
+  "Moderate" if it's an observational/cohort/cross-sectional study; "Limited" if it's a \
+  case report, case series, or narrative review; "Not specified" otherwise
+- "confidence": "High", "Medium", or "Low" - how confident you are that this summary \
+  accurately represents the abstract (lower this if the abstract is vague, truncated, \
+  or ambiguous)
 
 If information is not present in the abstract, use "Not specified" rather than guessing.
 """
@@ -24,12 +39,15 @@ If information is not present in the abstract, use "Not specified" rather than g
 
 def extract_insights(abstracts: list) -> list:
     """Send abstracts to the LLM and return structured insight dicts merged
-    with source metadata (title, journal, url) for display."""
+    with source metadata (title, journal, url) for display. Each abstract in
+    the input must already have a 'category' field (see
+    pubmed_fetcher.fetch_module1_abstracts)."""
     if not abstracts:
         return []
 
     user_content = json.dumps([
-        {"pmid": a["pmid"], "title": a["title"], "abstract": a["abstract"]}
+        {"pmid": a["pmid"], "category": a.get("category", "uncategorized"),
+         "title": a["title"], "abstract": a["abstract"]}
         for a in abstracts
     ])
 
@@ -50,14 +68,21 @@ def extract_insights(abstracts: list) -> list:
     except json.JSONDecodeError:
         # Fall back gracefully instead of crashing the app on a malformed LLM response
         return [{
-            "pmid": a["pmid"], "summary": "Could not parse LLM output for this abstract.",
-            "population": "Not specified", "key_finding": "Not specified", "confidence": "Low",
+            "pmid": a["pmid"], "category": a.get("category", "uncategorized"),
+            "pico": {"population": "Not specified", "intervention": "Not specified",
+                      "comparison": "Not specified", "outcome": "Not specified"},
+            "summary": "Could not parse LLM output for this abstract.",
+            "key_finding": "Not specified", "study_type": "Not specified",
+            "evidence_status": "Not specified", "confidence": "Low",
         } for a in abstracts]
 
-    by_pmid = {a["pmid"]: a for a in abstracts}
+    # Match on (pmid, category) since the same paper can appear under more
+    # than one category in theory, and each occurrence needs its own metadata.
+    by_key = {f"{a['pmid']}_{a.get('category', 'uncategorized')}": a for a in abstracts}
     merged = []
     for insight in insights:
-        source = by_pmid.get(insight.get("pmid"), {})
+        key = f"{insight.get('pmid')}_{insight.get('category')}"
+        source = by_key.get(key, {})
         merged.append({
             **insight,
             "title": source.get("title", ""),
