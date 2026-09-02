@@ -63,3 +63,30 @@ def search_and_fetch(query: str, max_results: int = None) -> list:
     """Convenience wrapper: search + fetch in one call."""
     pmids = search_pubmed(query, max_results)
     return fetch_abstracts(pmids)
+
+
+def fetch_module1_abstracts(topic: str, abstracts_per_category: int = None) -> list:
+    """v2: run one targeted PubMed search per Module 1 sub-category (disease
+    definition, epidemiology, patient funnel, burden of disease, unmet need)
+    instead of a single generic search. Each returned abstract is tagged with
+    which category it was retrieved for, so the app can group results the way
+    the evidence framework does.
+
+    A paper matching more than one category's search is only kept under the
+    first category it matched, to avoid duplicate insights and extra LLM cost.
+    """
+    abstracts_per_category = abstracts_per_category or config.ABSTRACTS_PER_CATEGORY
+    seen_pmids = set()
+    all_abstracts = []
+
+    for category_key, meta in config.MODULE_1_CATEGORIES.items():
+        query = f"{topic} {meta['search_terms']}"
+        results = search_and_fetch(query, abstracts_per_category)
+        for article in results:
+            if article["pmid"] in seen_pmids:
+                continue
+            seen_pmids.add(article["pmid"])
+            article["category"] = category_key
+            all_abstracts.append(article)
+
+    return all_abstracts
