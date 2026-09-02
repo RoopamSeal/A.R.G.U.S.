@@ -76,7 +76,12 @@ with tabs[0]:
     if st.button("Generate Module 1 evidence", type="primary") and topic:
         cached = cache.get(topic) if use_cache else None
 
-        if cached:
+        # v1 cached a plain list of insights; v2 caches a dict with "categories"
+        # and "overview". Treat anything in the old shape as a cache miss
+        # instead of crashing, so old cache files don't break the app.
+        is_valid_v2_cache = isinstance(cached, dict) and "categories" in cached and "overview" in cached
+
+        if is_valid_v2_cache:
             st.info("Loaded from cache — uncheck 'Use cache' to force a fresh search.")
             categories_data = cached["categories"]
             overview = cached["overview"]
