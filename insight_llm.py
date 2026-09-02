@@ -1,7 +1,13 @@
 """
 Sends PubMed abstracts to an LLM (Groq / Llama 3.3) and gets back
-structured insights as JSON - now in PICO format, with evidence status,
+structured insights as JSON - in PICO format, with evidence status,
 confidence rating, and study-type metadata for each retrieved abstract.
+
+Abstracts are sent in small batches rather than all at once. This matters:
+sending 15+ abstracts in a single call risks a truncated or malformed
+response, and since parsing was previously all-or-nothing, one bad response
+used to wipe out every abstract's data - producing a misleadingly "empty"
+evidence base instead of a clear error.
 """
 import json
 from groq import Groq
@@ -37,28 +43,43 @@ If information is not present in the abstract, use "Not specified" rather than g
 """
 
 
-def extract_insights(abstracts: list) -> list:
-    """Send abstracts to the LLM and return structured insight dicts merged
-    with source metadata (title, journal, url) for display. Each abstract in
-    the input must already have a 'category' field (see
-    pubmed_fetcher.fetch_module1_abstracts)."""
-    if not abstracts:
-        return []
-
+def _extract_batch(abstracts: list) -> list:
+    """Call the LLM for one small batch of abstracts. Returns merged insight
+    dicts, each tagged with parse_ok=True/False so the caller (and the UI)
+    can tell a real result apart from a parsing failure."""
     user_content = json.dumps([
         {"pmid": a["pmid"], "category": a.get("category", "uncategorized"),
          "title": a["title"], "abstract": a["abstract"]}
         for a in abstracts
     ])
 
-    response = client.chat.completions.create(
-        model=config.GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.2,
-    )
+    by_key = {f"{a['pmid']}_{a.get('category', 'uncategorized')}": a for a in abstracts}
+
+    def fallback(reason: str) -> list:
+        return [{
+            "pmid": a["pmid"], "category": a.get("category", "uncategorized"),
+            "pico": {"population": "Not specified", "intervention": "Not specified",
+                      "comparison": "Not specified", "outcome": "Not specified"},
+            "summary": f"Could not extract this abstract ({reason}).",
+            "key_finding": "Not specified", "study_type": "Not specified",
+            "evidence_status": "Not specified", "confidence": "Low",
+            "title": a.get("title", ""), "journal": a.get("journal", ""),
+            "pub_date": a.get("pub_date", ""), "url": a.get("url", ""),
+            "parse_ok": False,
+        } for a in abstracts]
+
+    try:
+        response = client.chat.completions.create(
+            model=config.GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.2,
+            max_tokens=config.LLM_MAX_TOKENS,
+        )
+    except Exception as e:
+        return fallback(f"API error: {e}")
 
     raw_text = response.choices[0].message.content.strip()
     raw_text = raw_text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
@@ -66,19 +87,8 @@ def extract_insights(abstracts: list) -> list:
     try:
         insights = json.loads(raw_text)
     except json.JSONDecodeError:
-        # Fall back gracefully instead of crashing the app on a malformed LLM response
-        return [{
-            "pmid": a["pmid"], "category": a.get("category", "uncategorized"),
-            "pico": {"population": "Not specified", "intervention": "Not specified",
-                      "comparison": "Not specified", "outcome": "Not specified"},
-            "summary": "Could not parse LLM output for this abstract.",
-            "key_finding": "Not specified", "study_type": "Not specified",
-            "evidence_status": "Not specified", "confidence": "Low",
-        } for a in abstracts]
+        return fallback("malformed JSON response")
 
-    # Match on (pmid, category) since the same paper can appear under more
-    # than one category in theory, and each occurrence needs its own metadata.
-    by_key = {f"{a['pmid']}_{a.get('category', 'uncategorized')}": a for a in abstracts}
     merged = []
     for insight in insights:
         key = f"{insight.get('pmid')}_{insight.get('category')}"
@@ -89,5 +99,22 @@ def extract_insights(abstracts: list) -> list:
             "journal": source.get("journal", ""),
             "pub_date": source.get("pub_date", ""),
             "url": source.get("url", ""),
+            "parse_ok": True,
         })
     return merged
+
+
+def extract_insights(abstracts: list) -> list:
+    """Send abstracts to the LLM in small batches and return structured
+    insight dicts merged with source metadata. Each abstract in the input
+    must already have a 'category' field (see
+    pubmed_fetcher.fetch_module1_abstracts). A failure in one batch does not
+    affect the others."""
+    if not abstracts:
+        return []
+
+    all_insights = []
+    for i in range(0, len(abstracts), config.LLM_BATCH_SIZE):
+        batch = abstracts[i:i + config.LLM_BATCH_SIZE]
+        all_insights.extend(_extract_batch(batch))
+    return all_insights
