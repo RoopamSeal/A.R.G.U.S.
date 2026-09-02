@@ -34,6 +34,11 @@ ABSTRACTS_PER_CATEGORY = 3  # 5 categories x 3 = up to 15 abstracts per topic
 # current insight_llm.py.
 LLM_BATCH_SIZE = 5
 
+# Max tokens for the LLM's response per extract_insights() call.
+# NOTE: also restored blind, same as LLM_BATCH_SIZE above - unverified
+# against your actual insight_llm.py.
+LLM_MAX_TOKENS = 2048
+
 # --- Module 1: Disease, burden, treatment landscape and unmet need ---
 MODULE_1_CATEGORIES = {
     "disease_definition": {
