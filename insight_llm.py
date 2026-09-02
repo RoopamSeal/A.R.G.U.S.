@@ -108,8 +108,8 @@ def extract_insights(abstracts: list) -> list:
     """Send abstracts to the LLM in small batches and return structured
     insight dicts merged with source metadata. Each abstract in the input
     must already have a 'category' field (see
-    pubmed_fetcher.fetch_module1_abstracts). A failure in one batch does not
-    affect the others."""
+    pubmed_fetcher.fetch_categorized_abstracts). A failure in one batch does
+    not affect the others."""
     if not abstracts:
         return []
 
