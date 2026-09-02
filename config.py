@@ -26,6 +26,14 @@ MAX_ABSTRACTS_PER_QUERY = 8
 CACHE_FILE = "insight_cache.json"
 ABSTRACTS_PER_CATEGORY = 3  # 5 categories x 3 = up to 15 abstracts per topic
 
+# How many abstracts to send to the LLM per extract_insights() call. If your
+# insight_llm.py batches abstracts (rather than sending all of them in one
+# request), this caps each batch so the prompt doesn't get too large.
+# NOTE: restored after being dropped by a full config.py rewrite - confirm
+# this value (and that this is the only place it's used) against your
+# current insight_llm.py.
+LLM_BATCH_SIZE = 5
+
 # --- Module 1: Disease, burden, treatment landscape and unmet need ---
 MODULE_1_CATEGORIES = {
     "disease_definition": {
