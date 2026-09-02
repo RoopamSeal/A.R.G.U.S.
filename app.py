@@ -30,7 +30,11 @@ EVIDENCE_ICON = {"Strong": "🟢", "Moderate": "🟡", "Limited": "🟠", "Not s
 def render_insight_card(item: dict):
     with st.container(border=True):
         st.markdown(f"**{item.get('title', 'Untitled')}**")
-        st.write(item.get("summary", ""))
+
+        if item.get("parse_ok") is False:
+            st.warning(item.get("summary", "Could not extract this abstract."))
+        else:
+            st.write(item.get("summary", ""))
 
         pico = item.get("pico", {})
         p_cols = st.columns(4)
@@ -113,7 +117,12 @@ def run_module(module_number: int, module_title: str, module_caption: str,
             cache.set(cache_key, {"categories": categories_data, "overview": overview})
 
         total_insights = sum(len(v) for v in categories_data.values())
+        failed_count = sum(
+            1 for items in categories_data.values() for i in items if i.get("parse_ok") is False
+        )
         st.success(f"Retrieved {total_insights} insight(s) for '{topic}' across {len(categories)} sub-categories")
+        if failed_count:
+            st.caption(f"⚠️ {failed_count} abstract(s) could not be extracted — flagged individually below.")
 
         st.subheader("Evidence overview")
         st.info(overview)
