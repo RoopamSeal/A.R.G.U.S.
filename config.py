@@ -21,6 +21,8 @@ ENTREZ_API_KEY = os.getenv("ENTREZ_API_KEY", "")
 GROQ_MODEL = "openai/gpt-oss-120b"
 MAX_ABSTRACTS_PER_QUERY = 8
 CACHE_FILE = "insight_cache.json"
+LLM_BATCH_SIZE = 5  # abstracts per LLM call - keeps responses well under the token limit
+LLM_MAX_TOKENS = 4096
 
 # --- v2: Module 1 (Disease, burden, treatment landscape and unmet need) ---
 # Each sub-category gets its own targeted PubMed search, so the app can group
