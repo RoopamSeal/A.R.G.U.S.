@@ -1,6 +1,9 @@
 """
-Configuration for the PubMed Insight Generator.
+Configuration for the Evidence Insight Repository.
 Loads API keys and settings from environment variables (.env file).
+
+v3: scoped down to only Module 1 (Disease & burden) and Module 7
+(Real-world evidence) - the other 5 modules from the framework are dropped.
 """
 import os
 from dotenv import load_dotenv
@@ -21,12 +24,9 @@ ENTREZ_API_KEY = os.getenv("ENTREZ_API_KEY", "")
 GROQ_MODEL = "openai/gpt-oss-120b"
 MAX_ABSTRACTS_PER_QUERY = 8
 CACHE_FILE = "insight_cache.json"
-LLM_BATCH_SIZE = 5  # abstracts per LLM call - keeps responses well under the token limit
-LLM_MAX_TOKENS = 4096
+ABSTRACTS_PER_CATEGORY = 3  # 5 categories x 3 = up to 15 abstracts per topic
 
-# --- v2: Module 1 (Disease, burden, treatment landscape and unmet need) ---
-# Each sub-category gets its own targeted PubMed search, so the app can group
-# results the way the evidence framework does, instead of one generic bucket.
+# --- Module 1: Disease, burden, treatment landscape and unmet need ---
 MODULE_1_CATEGORIES = {
     "disease_definition": {
         "label": "Disease definition & course",
@@ -55,18 +55,34 @@ MODULE_1_CATEGORIES = {
     },
 }
 
-# All 7 modules from the framework - only Module 1 is built so far
-ALL_MODULES = [
-    "Disease & burden",
-    "Competitive",
-    "Regulatory",
-    "Trials",
-    "HTA",
-    "Pricing",
-    "RWE",
-]
-
-ABSTRACTS_PER_CATEGORY = 3  # 5 categories x 3 = up to 15 abstracts per topic
+# --- Module 7: Real-world evidence ---
+MODULE_7_CATEGORIES = {
+    "data_source_inventory": {
+        "label": "Data source inventory",
+        "color": "#5C6672",
+        "search_terms": "registries claims database electronic health records real-world data source",
+    },
+    "natural_history": {
+        "label": "Natural history",
+        "color": "#5C6672",
+        "search_terms": "natural history disease progression prognostic factors untreated patients",
+    },
+    "treatment_patterns": {
+        "label": "Treatment patterns",
+        "color": "#5C6672",
+        "search_terms": "real-world treatment patterns initiation switching discontinuation adherence persistence",
+    },
+    "outcomes_burden": {
+        "label": "Outcomes & burden",
+        "color": "#5C6672",
+        "search_terms": "real-world effectiveness safety healthcare resource utilization cost caregiver burden",
+    },
+    "comparative_options": {
+        "label": "Comparative options",
+        "color": "#5C6672",
+        "search_terms": "real-world comparative effectiveness external control synthetic control confounding",
+    },
+}
 
 
 def validate_config():
