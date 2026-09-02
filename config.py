@@ -18,9 +18,53 @@ ENTREZ_EMAIL = os.getenv("ENTREZ_EMAIL", "")
 ENTREZ_API_KEY = os.getenv("ENTREZ_API_KEY", "")
 
 # Pipeline defaults
-GROQ_MODEL = "openai/gpt-oss-20b"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_ABSTRACTS_PER_QUERY = 8
 CACHE_FILE = "insight_cache.json"
+
+# --- v2: Module 1 (Disease, burden, treatment landscape and unmet need) ---
+# Each sub-category gets its own targeted PubMed search, so the app can group
+# results the way the evidence framework does, instead of one generic bucket.
+MODULE_1_CATEGORIES = {
+    "disease_definition": {
+        "label": "Disease definition & course",
+        "color": "#0B5ED7",
+        "search_terms": "definition classification pathophysiology diagnosis clinical course",
+    },
+    "epidemiology": {
+        "label": "Epidemiology",
+        "color": "#0B5ED7",
+        "search_terms": "epidemiology prevalence incidence mortality risk factors",
+    },
+    "patient_funnel": {
+        "label": "Patient funnel",
+        "color": "#0B5ED7",
+        "search_terms": "diagnosis rate treatment rate patient pathway referral",
+    },
+    "burden_of_disease": {
+        "label": "Burden of disease",
+        "color": "#0B5ED7",
+        "search_terms": "disease burden morbidity mortality quality of life economic burden",
+    },
+    "unmet_need": {
+        "label": "Unmet need",
+        "color": "#0B5ED7",
+        "search_terms": "unmet need treatment gap",
+    },
+}
+
+# All 7 modules from the framework - only Module 1 is built so far
+ALL_MODULES = [
+    "Disease & burden",
+    "Competitive",
+    "Regulatory",
+    "Trials",
+    "HTA",
+    "Pricing",
+    "RWE",
+]
+
+ABSTRACTS_PER_CATEGORY = 3  # 5 categories x 3 = up to 15 abstracts per topic
 
 
 def validate_config():
