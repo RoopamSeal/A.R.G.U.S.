@@ -29,6 +29,12 @@ EVIDENCE_ICON = {"Strong": "🟢", "Moderate": "🟡", "Limited": "🟠", "Not s
 def render_insight_card(item: dict):
     with st.container(border=True):
         st.markdown(f"**{item.get('title', 'Untitled')}**")
+
+        if not item.get("parse_ok", True):
+            st.error(item.get("summary", "This abstract could not be processed."))
+            st.markdown(f"[View source on PubMed ↗]({item.get('url', '#')})")
+            return
+
         st.write(item.get("summary", ""))
 
         pico = item.get("pico", {})
@@ -96,8 +102,20 @@ with tabs[0]:
             with st.spinner(f"Extracting structured insights from {len(abstracts)} abstracts..."):
                 insights = insight_llm.extract_insights(abstracts)
 
+            failed = [i for i in insights if not i.get("parse_ok", True)]
+            succeeded = [i for i in insights if i.get("parse_ok", True)]
+
+            if failed:
+                st.warning(
+                    f"⚠️ The LLM could not process {len(failed)} of {len(insights)} abstracts "
+                    f"(API error or malformed response) — they're shown below with a parsing-error "
+                    f"note instead of real data. Try clicking **Generate** again; this is usually transient."
+                )
+
             with st.spinner("Writing the evidence overview..."):
-                overview = summary_llm.generate_overview(topic, insights)
+                # Only summarize abstracts that actually parsed, so a partial
+                # failure can't make the overview claim the evidence is empty.
+                overview = summary_llm.generate_overview(topic, succeeded)
 
             categories_data = {key: [] for key in config.MODULE_1_CATEGORIES}
             for item in insights:
