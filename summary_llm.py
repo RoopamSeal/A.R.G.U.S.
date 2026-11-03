@@ -1,50 +1,23 @@
-"""
-v2: Generates a short executive-summary overview across every insight
-retrieved for a topic, spanning all Module 1 sub-categories. This is what
-answers "give me a summary of everything that's been fetched" instead of
-making the user read every card individually.
-"""
+"""Generate a cautious executive synthesis across a module's retrieved records."""
 from groq import Groq
 import config
 
-client = Groq(api_key=config.GROQ_API_KEY)
+PROMPT = """You are an evidence analyst supporting early Market Access decisions.
+Write a concise 120-180 word overview in plain prose. State what is established in the retrieved records,
+where evidence is thin, conflicting or indirect, and which categories had little/no evidence.
+Separate study findings from interpretation. Do not invent regulatory status, HTA outcomes, prices,
+market sizes or causal conclusions. Explicitly state that this is a synthesis of the supplied records,
+not a systematic review or a verified market assessment."""
 
-OVERVIEW_SYSTEM_PROMPT = """You are a biomedical evidence analyst. You will be given a \
-topic and a list of structured insights extracted from PubMed abstracts, grouped by \
-category (disease definition, epidemiology, patient funnel, burden of disease, unmet need).
-
-Write a concise executive summary (120-180 words, plain prose, no markdown headers) that:
-- States what is well-established across the retrieved literature
-- Flags where evidence is thin, limited to a single study, or conflicting
-- Notes any of the five categories with little or no retrieved evidence
-- Synthesizes across findings rather than listing every one individually
-
-Respond with ONLY the summary paragraph, nothing else."""
-
-
-def generate_overview(topic: str, insights: list) -> str:
-    """Summarize the full set of retrieved insights into one short paragraph."""
+def generate_overview(topic, insights, module_label="evidence module"):
     if not insights:
         return "No insights were retrieved for this topic."
-
-    # Only send the fields the summary actually needs - keeps the prompt small and cheap
-    condensed = [
-        {
-            "category": i.get("category"),
-            "key_finding": i.get("key_finding"),
-            "evidence_status": i.get("evidence_status"),
-        }
-        for i in insights
-    ]
-
-    user_content = f"Topic: {topic}\n\nInsights:\n{condensed}"
-
-    response = client.chat.completions.create(
+    condensed=[{"category":i.get("category"),"key_finding":i.get("key_finding"),
+                "evidence_status":i.get("evidence_status"),"study_type":i.get("study_type"),
+                "parse_ok":i.get("parse_ok")} for i in insights]
+    response=Groq(api_key=config.GROQ_API_KEY).chat.completions.create(
         model=config.GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": OVERVIEW_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.3,
-    )
+        messages=[{"role":"system","content":PROMPT},
+                  {"role":"user","content":f"Module: {module_label}\nTopic: {topic}\nRecords: {condensed}"}],
+        temperature=0.2,max_tokens=500)
     return response.choices[0].message.content.strip()
